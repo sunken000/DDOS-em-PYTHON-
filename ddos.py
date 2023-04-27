@@ -14,7 +14,7 @@ print(''' ######  ##     ## ##    ## ##    ## ######## ##    ##    ########  ###
 IP = input("Digite o IP do alvo: ")
 PORT = int(input("Digite a porta do alvo: "))
 
-# Gera bytes aleatórios
+# Gera bytes aleatórios (+bytes +poder)
 BYTES = random.randbytes(1490)
 
 # Exibe mensagem de ataque
