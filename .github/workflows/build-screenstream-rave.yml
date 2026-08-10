@@ -32,11 +32,12 @@ jobs:
           ref: be577f44fb24fa3a83af4d227c3adde35d2aab8c
           path: ScreenStreamWeb
 
-      - name: Expand chat patch
+      - name: Expand verified chat patch
         shell: bash
         run: |
           mkdir -p builder/screenstream-build/chat-patch
-          base64 -d builder/screenstream-build/chat-patch.zip.b64 > /tmp/chat-patch.zip
+          cat builder/screenstream-build/chat-patch.part-* | base64 -d > /tmp/chat-patch.zip
+          echo "a8d57cc652a1840acb0a6c948d8b3aff21dc9f14adff42d5d3548781e199e675  /tmp/chat-patch.zip" | sha256sum -c -
           unzip -q /tmp/chat-patch.zip -d /tmp/chat-patch-expanded
           cp -R /tmp/chat-patch-expanded/screenstream-rave-chat-patch/. builder/screenstream-build/chat-patch/
 
