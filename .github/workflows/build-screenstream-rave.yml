@@ -1,0 +1,121 @@
+name: Build ScreenStream Rave APK
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout builder branch
+        uses: actions/checkout@v4
+        with:
+          path: builder
+
+      - name: Checkout ScreenStream
+        uses: actions/checkout@v4
+        with:
+          repository: dkrivoruchko/ScreenStream
+          ref: aca4b9c1d413649571509e36d1d43c45f5d485b0
+          path: ScreenStream
+
+      - name: Checkout ScreenStreamWeb
+        uses: actions/checkout@v4
+        with:
+          repository: dkrivoruchko/ScreenStreamWeb
+          ref: be577f44fb24fa3a83af4d227c3adde35d2aab8c
+          path: ScreenStreamWeb
+
+      - name: Expand chat patch
+        shell: bash
+        run: |
+          mkdir -p builder/screenstream-build/chat-patch
+          base64 -d builder/screenstream-build/chat-patch.zip.b64 > /tmp/chat-patch.zip
+          unzip -q /tmp/chat-patch.zip -d /tmp/chat-patch-expanded
+          cp -R /tmp/chat-patch-expanded/screenstream-rave-chat-patch/. builder/screenstream-build/chat-patch/
+
+      - name: Apply Android chat and floating overlay
+        run: python3 builder/screenstream-build/chat-patch/apply_android_chat.py ScreenStream
+
+      - name: Apply web party chat
+        run: python3 builder/screenstream-build/chat-patch/apply_web_chat.py ScreenStreamWeb
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.11.0
+          cache: npm
+          cache-dependency-path: ScreenStreamWeb/package-lock.json
+
+      - name: Build patched ScreenStream web bundle
+        working-directory: ScreenStreamWeb
+        run: |
+          npm ci
+          npm run build
+          test -s src/client/static/bundle.js
+
+      - name: Add integrated in-app viewer
+        run: python3 builder/screenstream-build/apply_integrated_viewer.py ScreenStream ScreenStreamWeb/src/client/static/bundle.js
+
+      - name: Verify patch whitespace
+        run: |
+          git -C ScreenStream diff --check
+          git -C ScreenStreamWeb diff --check
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+
+      - name: Configure Android build
+        shell: bash
+        run: |
+          cat > ScreenStream/local.properties <<EOF
+          sdk.dir=${ANDROID_SDK_ROOT}
+          SIGNALING_SERVER_DEV="https://screenstream.io"
+          CLOUD_PROJECT_NUMBER_DEV="1"
+          ad.pubId=""
+          ad.unitIds="[]"
+          EOF
+          chmod +x ScreenStream/gradlew
+
+      - name: Build PlayStore debug APK
+        working-directory: ScreenStream
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g
+        run: ./gradlew :app:assemblePlayStoreDebug --no-daemon --stacktrace
+
+      - name: Package APK
+        shell: bash
+        run: |
+          APK="$(find ScreenStream/app/build/outputs/apk -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          cp "$APK" ScreenStream-RaveChat-Viewer-debug.apk
+          sha256sum ScreenStream-RaveChat-Viewer-debug.apk > ScreenStream-RaveChat-Viewer-debug.apk.sha256
+          ls -lh ScreenStream-RaveChat-Viewer-debug.apk*
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenStream-RaveChat-Viewer-debug
+          path: |
+            ScreenStream-RaveChat-Viewer-debug.apk
+            ScreenStream-RaveChat-Viewer-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 7
